@@ -224,7 +224,12 @@ public class PrimaryKeyPartialLookupTable implements LookupTable {
                     List<DataFileMeta> before = ((DataSplit) split).beforeFiles();
                     List<DataFileMeta> after = ((DataSplit) split).dataFiles();
 
-                    tableQuery.refreshFiles(partition, bucket, before, after);
+                    tableQuery.refreshFiles(
+                            partition,
+                            bucket,
+                            before,
+                            after,
+                            ((DataSplit) split).deletionFiles().orElse(null));
                 }
             }
         }

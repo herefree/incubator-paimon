@@ -25,12 +25,14 @@ import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataFileMetaSerializer;
+import org.apache.paimon.io.DataInputDeserializer;
 import org.apache.paimon.service.network.NetworkUtils;
 import org.apache.paimon.service.network.stats.DisabledServiceRequestStats;
 import org.apache.paimon.service.server.KvQueryServer;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.query.LocalTableQuery;
+import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
 
@@ -110,7 +112,9 @@ public class QueryExecutorOperator extends AbstractStreamOperator<InternalRow>
         DataFileMetaSerializer fileMetaSerializer = new DataFileMetaSerializer();
         List<DataFileMeta> beforeFiles = fileMetaSerializer.deserializeList(row.getBinary(3));
         List<DataFileMeta> dataFiles = fileMetaSerializer.deserializeList(row.getBinary(4));
-        query.refreshFiles(partition, bucket, beforeFiles, dataFiles);
+        List<DeletionFile> deletionFiles =
+                DeletionFile.deserializeList(new DataInputDeserializer(row.getBinary(5)));
+        query.refreshFiles(partition, bucket, beforeFiles, dataFiles, deletionFiles);
     }
 
     @Override

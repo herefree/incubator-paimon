@@ -29,6 +29,8 @@ import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataFileMetaSerializer;
+import org.apache.paimon.io.DataInputDeserializer;
+import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.manifest.IndexManifestEntry;
 import org.apache.paimon.manifest.ManifestEntry;
 import org.apache.paimon.manifest.ManifestFileMeta;
@@ -39,6 +41,7 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.ReadonlyTable;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DataTableScan;
+import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.InnerTableRead;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.StreamDataTableScan;
@@ -54,6 +57,9 @@ import org.apache.paimon.utils.SimpleFileReader;
 import org.apache.paimon.utils.SnapshotManager;
 import org.apache.paimon.utils.TagManager;
 
+import javax.annotation.Nullable;
+
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
@@ -83,10 +89,16 @@ public class FileMonitorTable implements DataTable, ReadonlyTable {
                         newBytesType(false),
                         new IntType(false),
                         newBytesType(false),
-                        newBytesType(false)
+                        newBytesType(false),
+                        newBytesType(true)
                     },
                     new String[] {
-                        "_SNAPSHOT_ID", "_PARTITION", "_BUCKET", "_BEFORE_FILES", "_DATA_FILES"
+                        "_SNAPSHOT_ID",
+                        "_PARTITION",
+                        "_BUCKET",
+                        "_BEFORE_FILES",
+                        "_DATA_FILES",
+                        "_DELETION_FILES"
                     });
 
     public FileMonitorTable(FileStoreTable wrapped) {
@@ -237,7 +249,8 @@ public class FileMonitorTable implements DataTable, ReadonlyTable {
                             dataSplit.partition(),
                             dataSplit.bucket(),
                             dataSplit.beforeFiles(),
-                            dataSplit.dataFiles());
+                            dataSplit.dataFiles(),
+                            dataSplit.deletionFiles().orElse(null));
 
             return new IteratorRecordReader<>(Collections.singletonList(toRow(change)).iterator());
         }
@@ -245,12 +258,16 @@ public class FileMonitorTable implements DataTable, ReadonlyTable {
 
     public static InternalRow toRow(FileChange change) throws IOException {
         DataFileMetaSerializer fileSerializer = new DataFileMetaSerializer();
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        DeletionFile.serializeList(new DataOutputViewStreamWrapper(baos), change.deletionFiles());
+
         return GenericRow.of(
                 change.snapshotId(),
                 serializeBinaryRow(change.partition()),
                 change.bucket(),
                 fileSerializer.serializeList(change.beforeFiles()),
-                fileSerializer.serializeList(change.dataFiles()));
+                fileSerializer.serializeList(change.dataFiles()),
+                baos.toByteArray());
     }
 
     public static FileChange toFileChange(InternalRow row) throws IOException {
@@ -260,7 +277,8 @@ public class FileMonitorTable implements DataTable, ReadonlyTable {
                 deserializeBinaryRow(row.getBinary(1)),
                 row.getInt(2),
                 fileSerializer.deserializeList(row.getBinary(3)),
-                fileSerializer.deserializeList(row.getBinary(4)));
+                fileSerializer.deserializeList(row.getBinary(4)),
+                DeletionFile.deserializeList(new DataInputDeserializer(row.getBinary(5))));
     }
 
     /** Pojo to record of file change. */
@@ -272,17 +290,21 @@ public class FileMonitorTable implements DataTable, ReadonlyTable {
         private final List<DataFileMeta> beforeFiles;
         private final List<DataFileMeta> dataFiles;
 
+        @Nullable private List<DeletionFile> deletionFiles;
+
         public FileChange(
                 long snapshotId,
                 BinaryRow partition,
                 int bucket,
                 List<DataFileMeta> beforeFiles,
-                List<DataFileMeta> dataFiles) {
+                List<DataFileMeta> dataFiles,
+                List<DeletionFile> deletionFiles) {
             this.snapshotId = snapshotId;
             this.partition = partition;
             this.bucket = bucket;
             this.beforeFiles = beforeFiles;
             this.dataFiles = dataFiles;
+            this.deletionFiles = deletionFiles;
         }
 
         public long snapshotId() {
@@ -303,6 +325,10 @@ public class FileMonitorTable implements DataTable, ReadonlyTable {
 
         public List<DataFileMeta> dataFiles() {
             return dataFiles;
+        }
+
+        public List<DeletionFile> deletionFiles() {
+            return deletionFiles;
         }
 
         @Override

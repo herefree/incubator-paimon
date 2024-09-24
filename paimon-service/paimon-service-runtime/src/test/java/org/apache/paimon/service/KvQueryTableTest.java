@@ -220,7 +220,8 @@ public class KvQueryTableTest extends PrimaryKeyTableTestBase {
                 message.partition(),
                 message.bucket(),
                 Collections.emptyList(),
-                message.newFilesIncrement().newFiles());
+                message.newFilesIncrement().newFiles(),
+                null);
     }
 
     private int computeBucket(int partition, int key, int value) throws Exception {

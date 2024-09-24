@@ -29,6 +29,7 @@ import org.apache.paimon.data.serializer.InternalSerializers;
 import org.apache.paimon.data.serializer.RowCompactedSerializer;
 import org.apache.paimon.deletionvectors.DeletionVector;
 import org.apache.paimon.disk.IOManager;
+import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.KeyValueFileReaderFactory;
 import org.apache.paimon.io.cache.CacheManager;
@@ -38,6 +39,7 @@ import org.apache.paimon.mergetree.LookupFile;
 import org.apache.paimon.mergetree.LookupLevels;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.KeyComparatorSupplier;
 import org.apache.paimon.utils.Preconditions;
@@ -78,6 +80,8 @@ public class LocalTableQuery implements TableQuery {
 
     private final RowType partitionType;
 
+    private FileIO fileIO;
+
     public LocalTableQuery(FileStoreTable table) {
         this.options = table.coreOptions();
         this.tableView = new HashMap<>();
@@ -87,6 +91,7 @@ public class LocalTableQuery implements TableQuery {
                     "Table Query only supports table with primary key.");
         }
         KeyValueFileStore store = (KeyValueFileStore) tableStore;
+        this.fileIO = table.fileIO();
 
         this.readerFactoryBuilder = store.newReaderFactoryBuilder();
         this.partitionType = table.schema().logicalPartitionType();
@@ -120,24 +125,32 @@ public class LocalTableQuery implements TableQuery {
             BinaryRow partition,
             int bucket,
             List<DataFileMeta> beforeFiles,
-            List<DataFileMeta> dataFiles) {
+            List<DataFileMeta> dataFiles,
+            @Nullable List<DeletionFile> deletionFiles) {
         LookupLevels<KeyValue> lookupLevels =
                 tableView.computeIfAbsent(partition, k -> new HashMap<>()).get(bucket);
         if (lookupLevels == null) {
             Preconditions.checkArgument(
                     beforeFiles.isEmpty(),
                     "The before file should be empty for the initial phase.");
-            newLookupLevels(partition, bucket, dataFiles);
+            newLookupLevels(partition, bucket, dataFiles, deletionFiles);
         } else {
             lookupLevels.getLevels().update(beforeFiles, dataFiles);
         }
     }
 
-    private void newLookupLevels(BinaryRow partition, int bucket, List<DataFileMeta> dataFiles) {
+    private void newLookupLevels(
+            BinaryRow partition,
+            int bucket,
+            List<DataFileMeta> dataFiles,
+            @Nullable List<DeletionFile> deletionFiles) {
         Levels levels = new Levels(keyComparatorSupplier.get(), dataFiles, options.numLevels());
-        // TODO pass DeletionVector factory
+
         KeyValueFileReaderFactory factory =
-                readerFactoryBuilder.build(partition, bucket, DeletionVector.emptyFactory());
+                readerFactoryBuilder.build(
+                        partition,
+                        bucket,
+                        DeletionVector.factory(fileIO, dataFiles, deletionFiles));
         Options options = this.options.toConfiguration();
         if (lookupFileCache == null) {
             lookupFileCache =

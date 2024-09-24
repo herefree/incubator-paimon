@@ -1265,6 +1265,7 @@ public class PrimaryKeyFileStoreTableTest extends FileStoreTableTestBase {
         FileMonitorTable.FileChange change = FileMonitorTable.toFileChange(results.get(0));
         assertThat(change.beforeFiles()).hasSize(0);
         assertThat(change.dataFiles()).hasSize(1);
+        assertThat(change.deletionFiles()).isEqualTo(null);
         results.clear();
 
         // 2. second write and compact
@@ -1286,6 +1287,7 @@ public class PrimaryKeyFileStoreTableTest extends FileStoreTableTestBase {
         change = FileMonitorTable.toFileChange(results.get(0));
         assertThat(change.beforeFiles()).hasSize(0);
         assertThat(change.dataFiles()).hasSize(1);
+        assertThat(change.deletionFiles()).isEqualTo(null);
         results.clear();
 
         // 2.2 read compact
@@ -1295,6 +1297,7 @@ public class PrimaryKeyFileStoreTableTest extends FileStoreTableTestBase {
         change = FileMonitorTable.toFileChange(results.get(0));
         assertThat(change.beforeFiles()).hasSize(2);
         assertThat(change.dataFiles()).hasSize(1);
+        assertThat(change.deletionFiles()).isEqualTo(null);
         results.clear();
 
         // 3 overwrite
@@ -1312,6 +1315,7 @@ public class PrimaryKeyFileStoreTableTest extends FileStoreTableTestBase {
         change = FileMonitorTable.toFileChange(results.get(0));
         assertThat(change.beforeFiles()).hasSize(1);
         assertThat(change.dataFiles()).hasSize(1);
+        assertThat(change.deletionFiles()).isEqualTo(null);
 
         write.close();
         commit.close();
@@ -1804,12 +1808,14 @@ public class PrimaryKeyFileStoreTableTest extends FileStoreTableTestBase {
                     msg.partition(),
                     msg.bucket(),
                     Collections.emptyList(),
-                    msg.newFilesIncrement().newFiles());
+                    msg.newFilesIncrement().newFiles(),
+                    null);
             query.refreshFiles(
                     msg.partition(),
                     msg.bucket(),
                     msg.compactIncrement().compactBefore(),
-                    msg.compactIncrement().compactAfter());
+                    msg.compactIncrement().compactAfter(),
+                    null);
         }
     }
 
