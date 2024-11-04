@@ -34,6 +34,7 @@ import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.utils.StringUtils;
 
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
@@ -59,6 +60,7 @@ import org.apache.flink.types.Row;
 
 import javax.annotation.Nullable;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -174,11 +176,42 @@ public class FlinkSourceBuilder {
 
     private ReadBuilder createReadBuilder() {
         ReadBuilder readBuilder =
-                table.newReadBuilder().withProjection(projectedFields).withFilter(predicate);
+                table.newReadBuilder().withReadType(covertToRowType()).withFilter(predicate);
         if (limit != null) {
             readBuilder.withLimit(limit.intValue());
         }
         return readBuilder;
+    }
+
+    private org.apache.paimon.types.RowType covertToRowType() {
+        if (projectedFields == null) {
+            return null;
+        }
+        return org.apache.paimon.types.RowType.of(
+                Arrays.stream(projectedFields)
+                        .map(fieldIds -> getNestedDataField(fieldIds, table.rowType()))
+                        .toArray(DataField[]::new));
+    }
+
+    private DataField getNestedDataField(
+            int[] projectedField, org.apache.paimon.types.RowType rowType) {
+        if (projectedField.length <= 1) {
+            return getField(projectedField[0], rowType);
+        } else {
+            DataField field = getField(projectedField[0], rowType);
+            if (field.type() instanceof org.apache.paimon.types.RowType) {
+                return field.newType(
+                        org.apache.paimon.types.RowType.of(
+                                getField(
+                                        projectedField[1],
+                                        (org.apache.paimon.types.RowType) field.type())));
+            }
+        }
+        throw new RuntimeException("");
+    }
+
+    private DataField getField(int index, org.apache.paimon.types.RowType rowType) {
+        return rowType.getFields().get(index);
     }
 
     private DataStream<RowData> buildStaticFileSource() {

@@ -66,6 +66,16 @@ public class BatchFileStoreITCase extends CatalogITCaseBase {
     }
 
     @Test
+    public void test() {
+        batchSql(
+                "CREATE TABLE IF NOT EXISTS D_T (a INT PRIMARY KEY NOT ENFORCED, b Row<r1 String, r2 String>, "
+                        + "arr ARRAY<ROW<f1 STRING,f2 STRING>>, mapt MAP<STRING, STRING>)");
+        batchSql(
+                "INSERT INTO D_T VALUES (1, Row('1232','123'),Array[Row('f0','f1')], Map['k1','v1'])");
+        batchSql("SELECT b.r1 FROM D_T ").stream().forEach(System.out::println);
+    }
+
+    @Test
     public void testAQEWithDynamicBucket() {
         batchSql("CREATE TABLE IF NOT EXISTS D_T (a INT PRIMARY KEY NOT ENFORCED, b INT, c INT)");
         batchSql("INSERT INTO T VALUES (1, 11, 111), (2, 22, 222)");

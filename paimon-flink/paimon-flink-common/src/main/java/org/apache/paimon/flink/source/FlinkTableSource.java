@@ -122,7 +122,7 @@ public abstract class FlinkTableSource
 
     @Override
     public boolean supportsNestedProjection() {
-        return false;
+        return true;
     }
 
     @Override
