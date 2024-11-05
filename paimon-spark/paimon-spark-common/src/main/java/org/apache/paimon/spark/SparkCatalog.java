@@ -33,11 +33,16 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.analysis.NamespaceAlreadyExistsException;
 import org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException;
 import org.apache.spark.sql.catalyst.analysis.NoSuchTableException;
+import org.apache.spark.sql.catalyst.analysis.NoSuchViewException;
 import org.apache.spark.sql.catalyst.analysis.TableAlreadyExistsException;
+import org.apache.spark.sql.catalyst.analysis.ViewAlreadyExistsException;
 import org.apache.spark.sql.connector.catalog.Identifier;
 import org.apache.spark.sql.connector.catalog.NamespaceChange;
 import org.apache.spark.sql.connector.catalog.TableCatalog;
 import org.apache.spark.sql.connector.catalog.TableChange;
+import org.apache.spark.sql.connector.catalog.View;
+import org.apache.spark.sql.connector.catalog.ViewCatalog;
+import org.apache.spark.sql.connector.catalog.ViewChange;
 import org.apache.spark.sql.connector.expressions.FieldReference;
 import org.apache.spark.sql.connector.expressions.IdentityTransform;
 import org.apache.spark.sql.connector.expressions.NamedReference;
@@ -74,7 +79,7 @@ import static org.apache.paimon.spark.util.OptionUtils.copyWithSQLConf;
 import static org.apache.paimon.utils.Preconditions.checkArgument;
 
 /** Spark {@link TableCatalog} for paimon. */
-public class SparkCatalog extends SparkBaseCatalog implements SupportFunction {
+public class SparkCatalog extends SparkBaseCatalog implements SupportFunction, ViewCatalog {
 
     private static final Logger LOG = LoggerFactory.getLogger(SparkCatalog.class);
 
@@ -567,5 +572,45 @@ public class SparkCatalog extends SparkBaseCatalog implements SupportFunction {
     @Override
     public void alterNamespace(String[] namespace, NamespaceChange... changes) {
         throw new UnsupportedOperationException("Alter namespace in Spark is not supported yet.");
+    }
+
+    @Override
+    public Identifier[] listViews(String... namespace) throws NoSuchNamespaceException {
+        checkArgument(
+                isValidateNamespace(namespace),
+                "Missing database in namespace: %s",
+                Arrays.toString(namespace));
+        try {
+            return catalog.listViews(namespace[0]).stream()
+                    .map(table -> Identifier.of(namespace, table))
+                    .toArray(Identifier[]::new);
+        } catch (Catalog.DatabaseNotExistException e) {
+            throw new NoSuchNamespaceException(namespace);
+        }
+    }
+
+    @Override
+    public View loadView(Identifier identifier) throws NoSuchViewException {
+        return null;
+    }
+
+    @Override
+    public View createView(Identifier identifier, String s, String s1, String[] strings, StructType structType, String[] strings1, String[] strings2, String[] strings3, Map<String, String> map) throws ViewAlreadyExistsException, NoSuchNamespaceException {
+        return null;
+    }
+
+    @Override
+    public View alterView(Identifier identifier, ViewChange... viewChanges) throws NoSuchViewException, IllegalArgumentException {
+        return null;
+    }
+
+    @Override
+    public boolean dropView(Identifier identifier) {
+        return false;
+    }
+
+    @Override
+    public void renameView(Identifier identifier, Identifier identifier1) throws NoSuchViewException, ViewAlreadyExistsException {
+
     }
 }
