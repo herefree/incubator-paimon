@@ -30,15 +30,21 @@ import org.apache.paimon.spark.catalog.SupportFunction;
 import org.apache.paimon.table.FormatTable;
 import org.apache.paimon.table.FormatTableOptions;
 
+import org.apache.paimon.view.ViewImpl;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.analysis.NamespaceAlreadyExistsException;
 import org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException;
 import org.apache.spark.sql.catalyst.analysis.NoSuchTableException;
+import org.apache.spark.sql.catalyst.analysis.NoSuchViewException;
 import org.apache.spark.sql.catalyst.analysis.TableAlreadyExistsException;
+import org.apache.spark.sql.catalyst.analysis.ViewAlreadyExistsException;
 import org.apache.spark.sql.connector.catalog.Identifier;
 import org.apache.spark.sql.connector.catalog.NamespaceChange;
 import org.apache.spark.sql.connector.catalog.TableCatalog;
 import org.apache.spark.sql.connector.catalog.TableChange;
+import org.apache.spark.sql.connector.catalog.View;
+import org.apache.spark.sql.connector.catalog.ViewCatalog;
+import org.apache.spark.sql.connector.catalog.ViewChange;
 import org.apache.spark.sql.connector.expressions.FieldReference;
 import org.apache.spark.sql.connector.expressions.IdentityTransform;
 import org.apache.spark.sql.connector.expressions.NamedReference;
@@ -75,7 +81,7 @@ import static org.apache.paimon.spark.util.OptionUtils.copyWithSQLConf;
 import static org.apache.paimon.utils.Preconditions.checkArgument;
 
 /** Spark {@link TableCatalog} for paimon. */
-public class SparkCatalog extends SparkBaseCatalog implements SupportFunction {
+public class SparkCatalog extends SparkBaseCatalog implements SupportFunction, ViewCatalog {
 
     private static final Logger LOG = LoggerFactory.getLogger(SparkCatalog.class);
 
@@ -430,8 +436,8 @@ public class SparkCatalog extends SparkBaseCatalog implements SupportFunction {
                 pkAsString == null
                         ? Collections.emptyList()
                         : Arrays.stream(pkAsString.split(","))
-                                .map(String::trim)
-                                .collect(Collectors.toList());
+                        .map(String::trim)
+                        .collect(Collectors.toList());
         Schema.Builder schemaBuilder =
                 Schema.newBuilder()
                         .options(normalizedProperties)
@@ -555,10 +561,95 @@ public class SparkCatalog extends SparkBaseCatalog implements SupportFunction {
         return partitionColNames;
     }
 
+    @Override
+    public Identifier[] listViews(String... namespace) throws NoSuchNamespaceException {
+        checkArgument(
+                isValidateNamespace(namespace),
+                "Missing database in namespace: %s",
+                Arrays.toString(namespace));
+        try {
+            return catalog.listViews(namespace[0]).stream()
+                    .map(table -> Identifier.of(namespace, table))
+                    .toArray(Identifier[]::new);
+        } catch (Catalog.DatabaseNotExistException e) {
+            throw new NoSuchNamespaceException(namespace);
+        }
+    }
+
+    @Override
+    public View loadView(Identifier identifier) throws NoSuchViewException {
+        try {
+            org.apache.paimon.view.View view = catalog.getView(toIdentifier(identifier));
+            return new SparkView(catalogName, view);
+        } catch (Catalog.ViewNotExistException | NoSuchTableException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public View createView(
+            Identifier identifier,
+            String sql,
+            String currentCatalog,
+            String[] currentNamespace,
+            StructType schema,
+            String[] queryColumnNames,
+            String[] columnAliases,
+            String[] columnComments,
+            Map<String, String> properties)
+            throws ViewAlreadyExistsException, NoSuchNamespaceException {
+        try {
+            org.apache.paimon.types.RowType.Builder builder =
+                    org.apache.paimon.types.RowType.builder();
+            Arrays.stream(schema.fields())
+                    .forEach(
+                            field ->
+                                    builder.field(
+                                            field.name(),
+                                            toPaimonType(field.dataType()).copy(field.nullable()),
+                                            field.getComment().getOrElse(() -> null)));
+            org.apache.paimon.view.View view =
+                    new ViewImpl(
+                            toIdentifier(identifier),
+                            builder.build(),
+                            sql,
+                            properties.getOrDefault(TableCatalog.PROP_COMMENT, null),
+                            properties);
+            catalog.createView(toIdentifier(identifier), view, false);
+            return loadView(identifier);
+        } catch (Catalog.ViewAlreadyExistException e) {
+            throw new ViewAlreadyExistsException(identifier);
+        } catch (NoSuchTableException e) {
+            throw new RuntimeException(e);
+        } catch (Catalog.DatabaseNotExistException | NoSuchViewException e) {
+            throw new NoSuchNamespaceException(identifier.namespace());
+        }
+    }
+
+    @Override
+    public boolean dropView(Identifier identifier) {
+        try {
+            catalog.dropView(toIdentifier(identifier), false);
+            return true;
+        } catch (Catalog.ViewNotExistException | NoSuchTableException e) {
+            return false;
+        }
+    }
     // --------------------- unsupported methods ----------------------------
 
     @Override
     public void alterNamespace(String[] namespace, NamespaceChange... changes) {
         throw new UnsupportedOperationException("Alter namespace in Spark is not supported yet.");
     }
+
+
+    @Override
+    public View alterView(Identifier identifier, ViewChange... viewChanges)
+            throws NoSuchViewException, IllegalArgumentException {
+        throw new UnsupportedOperationException("Alter view in Spark is not supported yet.");
+    }
+
+    @Override
+    public void renameView(Identifier oldIdent, Identifier newIdentq)
+            throws NoSuchViewException, ViewAlreadyExistsException {}
 }

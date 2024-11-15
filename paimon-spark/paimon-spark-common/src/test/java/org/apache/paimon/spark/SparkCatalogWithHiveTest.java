@@ -113,7 +113,38 @@ public class SparkCatalogWithHiveTest {
 
         spark.close();
     }
+    @Test
+    public void testViewTable(@TempDir java.nio.file.Path tempDir) {
+        Path warehousePath = new Path("file:" + tempDir.toString());
+        SparkSession spark =
+                SparkSession.builder()
+                        .config("spark.sql.warehouse.dir", warehousePath.toString())
+                        // with hive metastore
+                        .config("spark.sql.catalogImplementation", "hive")
+                        .config("hive.metastore.uris", "thrift://localhost:" + PORT)
+                        .config("spark.sql.catalog.spark_catalog", SparkCatalog.class.getName())
+                        .config("spark.sql.catalog.spark_catalog.metastore", "hive")
+                        .config(
+                                "spark.sql.catalog.spark_catalog.hive.metastore.uris",
+                                "thrift://localhost:" + PORT)
+                        .config(
+                                "spark.sql.catalog.spark_catalog.warehouse",
+                                warehousePath.toString())
+                        .master("local[2]")
+                        .getOrCreate();
 
+        spark.sql("CREATE DATABASE IF NOT EXISTS my_db1");
+        spark.sql("USE spark_catalog.my_db1");
+
+        // test orc table
+
+        spark.sql("CREATE TABLE paimon_tbl (id STRING, name STRING, pt STRING) USING PAIMON TBLPROPERTIES ('primary-key' = 'id') ");
+        spark.sql("insert into paimon_tbl select '1', 'n', 'cc'");
+        spark.sql("CREATE OR REPLACE VIEW hellp (name comment 'heasd') as select id from paimon_tbl");
+        spark.sql("select * from paimon_tbl");
+        spark.sql("select * from hellp");
+        spark.close();
+    }
     @Test
     public void testSpecifyHiveConfDir(@TempDir java.nio.file.Path tempDir) {
         Path warehousePath = new Path("file:" + tempDir.toString());
